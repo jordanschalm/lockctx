@@ -17,8 +17,11 @@ type Manager interface {
 // Policy defines whether a goroutine is allowed acquire a new lock based on locks it already holds.
 // Policies exist to prevent deadlock by defining a canonical ordering for the set of locks in a Manager.
 type Policy interface {
-	// CanAcquire returns true if a goroutine holding the given locks are allowed to subsequently
-	// acquire the next lock.
+	// CanAcquire returns true if a goroutine already holding the given locks is
+	// allowed to also acquire the next lock.
+	//
+	// Implementations must be safe for concurrent use by multiple goroutines.
+	// Implementations must be non-blocking.
 	CanAcquire(holding []string, next string) bool
 }
 
@@ -50,5 +53,74 @@ type Context interface {
 
 type manager struct {
 	policy Policy
-	locks  map[string]sync.Mutex
+	locks  map[string]*sync.Mutex
+}
+
+func NewManager(lockIDs []string, policy Policy) Manager {
+	mgr := &manager{
+		policy: policy,
+		locks:  make(map[string]*sync.Mutex, len(lockIDs)),
+	}
+	for _, lockID := range lockIDs {
+		mgr.locks[lockID] = new(sync.Mutex)
+	}
+	return mgr
+}
+
+func (m *manager) NewContext() Context {
+	return &context{
+		mgr:  m,
+		used: false,
+	}
+}
+
+type context struct {
+	mgr     *manager
+	holding []string
+	used    bool
+}
+
+func (ctx *context) AcquireLock(lockID string) error {
+	if ctx.used {
+		panic("lockctx: context has been released")
+	}
+	if !ctx.mgr.policy.CanAcquire(ctx.holding, lockID) {
+		return ErrPolicyViolation
+	}
+	ctx.mgr.locks[lockID].Lock()
+	ctx.holding = append(ctx.holding, lockID)
+	return nil
+}
+
+func (ctx *context) HoldsLock(lockID string) bool {
+	if ctx.used {
+		panic("lockctx: context has been released")
+	}
+	for _, heldLock := range ctx.holding {
+		if heldLock == lockID {
+			return true
+		}
+	}
+	return false
+}
+
+func (ctx *context) Release() {
+	if ctx.used {
+		panic("lockctx: context has been released")
+	}
+	for _, lockID := range ctx.holding {
+		ctx.mgr.locks[lockID].Unlock()
+	}
+	ctx.used = true
+}
+
+type StringOrderPolicy struct{}
+
+func (policy StringOrderPolicy) CanAcquire(holding []string, next string) bool {
+	if len(holding) == 0 {
+		return true
+	}
+	last := holding[len(holding)-1]
+	// next lock ID must sort before last acquired lock
+	return last < next
 }
