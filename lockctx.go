@@ -3,111 +3,52 @@ package lockctx
 import (
 	"errors"
 	"sync"
-	"sync/atomic"
 )
 
-var ErrDuplicate = errors.New("duplicate lock")
+var ErrPolicyViolation = errors.New("policy violation")
 
-var defaultManager = NewManager()
-
+// Manager controls access to a set of locks.
+// The set of locks and Policy (if any) is defined at construction time and is constant for the lifecycle of the Manager.
 type Manager interface {
-	New(id string) (Lock, error)
+	// NewContext returns a new Context which is able to acquire locks managed by this Manager.
+	NewContext() Context
 }
 
-type managerBuilder struct {
+// Policy defines whether a goroutine is allowed acquire a new lock based on locks it already holds.
+// Policies exist to prevent deadlock by defining a canonical ordering for the set of locks in a Manager.
+type Policy interface {
+	// CanAcquire returns true if a goroutine holding the given locks are allowed to subsequently
+	// acquire the next lock.
+	CanAcquire(holding []string, next string) bool
 }
 
-func (m *managerBuilder) AddLock(id string) *managerBuilder {
-	return nil
-}
+// Context represents a goroutine's access to one or more locks managed by a Manager.
+// A new Context must be created every time a goroutine first acquires a lock.
+// A Context is not safe for concurrent access by multiple goroutines.
+type Context interface {
+	// AcquireLock acquires the lock with the given ID, unless doing so violates the configured Policy.
+	// This function will block if the lock is held by another goroutine.
+	//
+	// Returns ErrPolicyViolation if acquiring the lock would violate the configured Policy.
+	// Panics if no lock with the given ID exists.
+	// Panics if Release has ever been called on this Context.
+	AcquireLock(lockID string) error
 
-func (m *managerBuilder) Build() (Manager, error) {
-	return nil, nil
-}
+	// HoldsLock returns true if this goroutine currently holds the lock with the given ID.
+	// This method is non-blocking.
+	//
+	// Panics if no lock with the given ID exists.
+	// Panics if Release has ever been called on this Context.
+	HoldsLock(lockID string) bool
 
-func NewManager() Manager {
-	return &manager{
-		created: make(map[string]struct{}),
-	}
-}
-
-type manager struct {
-	mu      sync.Mutex
-	created map[string]struct{}
-}
-
-type Lock interface {
-	Acquire(id string) error
+	// Release releases all currently held locks and permanently marks this Context as "used".
+	// This method is non-blocking.
+	//
+	// Panics if Release has ever been called on this Context.
 	Release()
 }
 
-type LockProof interface {
-	Valid(id string) bool
-}
-
-
-func (m *manager) New(id string) (Lock, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.created[id]; ok {
-		return nil, ErrDuplicate
-	}
-	m.created[id] = struct{}{}
-	return &lock{
-		mu:   sync.Mutex{},
-		id:   id,
-		held: atomic.Bool{},
-	}, nil
-}
-
-type Lock interface {
-	sync.Locker
-	ID() string
-	Proof() Proof
-}
-
-func NewLock(id string) (Lock, error) {
-	return defaultManager.New(id)
-}
-
-type lock struct {
-	mu   sync.Mutex
-	id   string
-	held atomic.Bool
-}
-
-func (l *lock) Lock() {
-	l.mu.Lock()
-	l.held.Store(true)
-}
-
-func (l *lock) Unlock() {
-	l.held.Store(false)
-	l.mu.Unlock()
-}
-
-func (l *lock) ID() string {
-	return l.id
-}
-
-func (l *lock) valid(id string) bool {
-	return l.held.Load() && l.id == id
-}
-
-func (l *lock) Proof() Proof {
-	return &proof{lock: l}
-}
-
-// Proof represents the capability to operate on a shared resource protected by a lock.
-type Proof interface {
-	// Valid returns true if the proof remains valid
-	Valid(id string) bool
-}
-
-type proof struct {
-	lock *lock
-}
-
-func (c *proof) Valid(id string) bool {
-	return c.lock.valid(id)
+type manager struct {
+	policy Policy
+	locks  map[string]sync.Mutex
 }
