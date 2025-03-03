@@ -14,3 +14,13 @@ We would like to:
 - not rewrite all our database code
 - clearly communicate which operations require such synchronization
 - have strong and comprehensible guarantees of exclusivity for relevant database operations
+
+## Improvements
+- Map lock ID strings to a more performant internal representation
+- Allow releasing individual locks, instead of all locks held by the context
+- Use a pool of contexts to avoid allocations
+- Revisit whether contexts cannot be reused
+- Revisit panics
+- Consider whether Context should be split into "acquirer" and "validator" components
+  - Acquirer could explicitly pass in `ctx.ProofFor(A, B)` to document which locks are used?
+  - We could count arguments to `ProofFor` and warn if an acquired lock never had a proof created for i?
