@@ -41,7 +41,6 @@ type Context interface {
 	// This method is non-blocking.
 	//
 	// Panics if no lock with the given ID exists.
-	// Panics if Release has ever been called on this Context.
 	HoldsLock(lockID string) bool
 
 	// Release releases all currently held locks and permanently marks this Context as "used".
@@ -94,7 +93,7 @@ func (ctx *context) AcquireLock(lockID string) error {
 
 func (ctx *context) HoldsLock(lockID string) bool {
 	if ctx.used {
-		panic("lockctx: context has been released")
+		return false
 	}
 	for _, heldLock := range ctx.holding {
 		if heldLock == lockID {
@@ -114,13 +113,24 @@ func (ctx *context) Release() {
 	ctx.used = true
 }
 
-type StringOrderPolicy struct{}
+type statelessPolicy func([]string, string) bool
 
-func (policy StringOrderPolicy) CanAcquire(holding []string, next string) bool {
+func (policy statelessPolicy) CanAcquire(holding []string, next string) bool {
+	return policy(holding, next)
+}
+
+// StringOrderPolicy enforces that locks are acquired in lexicographic sort order.
+// Guarantees no deadlock.
+var StringOrderPolicy statelessPolicy = func(holding []string, next string) bool {
 	if len(holding) == 0 {
 		return true
 	}
 	last := holding[len(holding)-1]
-	// next lock ID must sort before last acquired lock
+	// next lock ID must sort after last acquired lock
 	return last < next
+}
+
+// NoPolicy enforces no constraints on lock ordering.
+var NoPolicy statelessPolicy = func(holding []string, next string) bool {
+	return true
 }

@@ -2,8 +2,8 @@ package lockctx_test
 
 import (
 	"errors"
-	"slices"
-	"sort"
+	"fmt"
+	"math/rand/v2"
 	"sync"
 	"testing"
 
@@ -25,57 +25,94 @@ func assertNoError(t *testing.T, err error) {
 	}
 }
 
-func TestLockCreation(t *testing.T) {
+func assertTrue(t *testing.T, b bool) {
+	if !b {
+		t.Fail()
+	}
+}
 
-	t.Run("default manager should produce exactly one lock with a given id", func(t *testing.T) {
-		_, err := lockctx.NewLock("a")
-		assertNoError(t, err)
-		_, err = lockctx.NewLock("a")
-		assertErrorIs(t, err, lockctx.ErrDuplicate)
+func assertFalse(t *testing.T, b bool) {
+	assertTrue(t, !b)
+}
+
+func holdsAll(ctx lockctx.Context, lockIds []string) bool {
+	for _, id := range lockIds {
+		if !ctx.HoldsLock(id) {
+			return false
+		}
+	}
+	return true
+}
+
+func holdsAny(ctx lockctx.Context, lockIds []string) bool {
+	for _, id := range lockIds {
+		if ctx.HoldsLock(id) {
+			return true
+		}
+	}
+	return false
+}
+
+func lockIDsFixture(n int) []string {
+	ids := make([]string, n)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("%d", i)
+	}
+	return ids
+}
+
+func TestHoldsLock(t *testing.T) {
+	ids := lockIDsFixture(5)
+	mgr := lockctx.NewManager(ids, lockctx.NoPolicy)
+
+	t.Run("at construction should hold no lock", func(t *testing.T) {
+		ctx := mgr.NewContext()
+		defer ctx.Release()
+		for _, id := range ids {
+			assertFalse(t, ctx.HoldsLock(id))
+		}
 	})
+	t.Run("holding a lock", func(t *testing.T) {
+		ctx := mgr.NewContext()
+		defer ctx.Release()
 
-	t.Run("distinct managers should each produce exactly one lock with a given id", func(t *testing.T) {
-		mgr1 := lockctx.NewManager()
-		mgr2 := lockctx.NewManager()
-		_, err := mgr1.New("a")
+		toAcquire := ids[rand.IntN(len(ids))]
+		err := ctx.AcquireLock(toAcquire)
 		assertNoError(t, err)
-		_, err = mgr1.New("a")
-		assertErrorIs(t, err, lockctx.ErrDuplicate)
-		_, err = mgr2.New("a")
-		assertNoError(t, err)
-		_, err = mgr2.New("a")
-		assertErrorIs(t, err, lockctx.ErrDuplicate)
+
+		for _, id := range ids {
+			isHolding := ctx.HoldsLock(id)
+			assertTrue(t, isHolding == (toAcquire == id))
+		}
+	})
+	t.Run("holding multiple locks", func(t *testing.T) {
+
+	})
+	t.Run("after release", func(t *testing.T) {
+
 	})
 }
 
-func TestConcurrentLockCreation(t *testing.T) {
-	mgr := lockctx.NewManager()
-	ids := []string{"a", "b", "c", "d", "e"}
-	locks := make(chan lockctx.Lock, len(ids))
+func TestConcurrentContexts(t *testing.T) {
+	lockIDs := lockIDsFixture(5)
+	mgr := lockctx.NewManager(lockIDs, lockctx.NoPolicy)
 	wg := new(sync.WaitGroup)
-	wg.Add(len(ids))
-	for i := 0; i < len(ids); i++ {
+	wg.Add(len(lockIDs))
+	for i := 0; i < len(lockIDs); i++ {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < len(ids); j++ {
-				lock, err := mgr.New(ids[j])
-				if err != nil {
-					assertErrorIs(t, err, lockctx.ErrDuplicate)
-					continue
-				}
-				locks <- lock
+
+			ctx := mgr.NewContext()
+			defer ctx.Release()
+
+			assertFalse(t, holdsAny(ctx, lockIDs))
+			for j := 0; j < len(lockIDs); j++ {
+				err := ctx.AcquireLock(lockIDs[j])
+				assertNoError(t, err)
+				assertTrue(t, holdsAll(ctx, lockIDs[:j+1]))
+				assertFalse(t, holdsAny(ctx, lockIDs[j+1:]))
 			}
 		}()
 	}
-
 	wg.Wait()
-	close(locks)
-	createdLockIDs := make([]string, 0, len(locks))
-	for lock := range locks {
-		createdLockIDs = append(createdLockIDs, lock.ID())
-	}
-	sort.Strings(createdLockIDs)
-	if !slices.Equal(ids, createdLockIDs) {
-		t.Fail()
-	}
 }
