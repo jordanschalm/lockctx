@@ -2,7 +2,10 @@ package lockctx
 
 import (
 	"errors"
+	"fmt"
 	"sync"
+
+	"github.com/jordanschalm/lockctx/internal/graph"
 )
 
 // ErrPolicyViolation is returned if acquiring a lock causes a policy violation.
@@ -142,4 +145,43 @@ var StringOrderPolicy statelessPolicy = func(holding []string, next string) bool
 // NoPolicy enforces no constraints on lock ordering.
 var NoPolicy statelessPolicy = func(holding []string, next string) bool {
 	return true
+}
+
+type DAGPolicyBuilder struct {
+	dag graph.Graph
+}
+
+func (b DAGPolicyBuilder) Add(lock1, lock2 string) DAGPolicyBuilder {
+	b.dag.AddEdge(lock1, lock2)
+	return b
+}
+
+func (b DAGPolicyBuilder) Build() Policy {
+	if cycle, ok := b.dag.HasCycle(); ok {
+		panic(fmt.Sprintf("invalid DAG policy contains cycle: %v", cycle))
+	}
+	return dagPolicy{
+		dag: b.dag,
+	}
+}
+
+func NewDAGPolicyBuilder() DAGPolicyBuilder {
+	return DAGPolicyBuilder{
+		dag: graph.NewGraph(),
+	}
+}
+
+type dagPolicy struct {
+	dag graph.Graph
+}
+
+func (policy dagPolicy) CanAcquire(holding []string, next string) bool {
+	if len(holding) == 0 {
+		return true
+	}
+	last := holding[len(holding)-1]
+	if _, ok := policy.dag.Neighbours(last)[next]; ok {
+		return true
+	}
+	return false
 }

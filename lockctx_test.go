@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/jordanschalm/lockctx"
-	"github.com/jordanschalm/lockctx/internal"
+	"github.com/jordanschalm/lockctx/internal/assert"
 )
 
 func holdsAll(ctx lockctx.Context, lockIds []string) bool {
@@ -44,7 +44,7 @@ func TestHoldsLock(t *testing.T) {
 		ctx := mgr.NewContext()
 		defer ctx.Release()
 		for _, id := range ids {
-			internal.AssertFalse(t, ctx.HoldsLock(id))
+			assert.False(t, ctx.HoldsLock(id))
 		}
 	})
 	t.Run("holding a lock", func(t *testing.T) {
@@ -53,11 +53,11 @@ func TestHoldsLock(t *testing.T) {
 
 		toAcquire := ids[rand.IntN(len(ids))]
 		err := ctx.AcquireLock(toAcquire)
-		internal.AssertNoError(t, err)
+		assert.NoError(t, err)
 
 		for _, id := range ids {
 			isHolding := ctx.HoldsLock(id)
-			internal.AssertTrue(t, isHolding == (toAcquire == id))
+			assert.True(t, isHolding == (toAcquire == id))
 		}
 	})
 	t.Run("holding multiple locks", func(t *testing.T) {
@@ -80,12 +80,12 @@ func TestConcurrentContexts(t *testing.T) {
 			ctx := mgr.NewContext()
 			defer ctx.Release()
 
-			internal.AssertFalse(t, holdsAny(ctx, lockIDs))
+			assert.False(t, holdsAny(ctx, lockIDs))
 			for j := 0; j < len(lockIDs); j++ {
 				err := ctx.AcquireLock(lockIDs[j])
-				internal.AssertNoError(t, err)
-				internal.AssertTrue(t, holdsAll(ctx, lockIDs[:j+1]))
-				internal.AssertFalse(t, holdsAny(ctx, lockIDs[j+1:]))
+				assert.NoError(t, err)
+				assert.True(t, holdsAll(ctx, lockIDs[:j+1]))
+				assert.False(t, holdsAny(ctx, lockIDs[j+1:]))
 			}
 		}()
 	}
