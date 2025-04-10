@@ -5,6 +5,7 @@ import (
 	"sync"
 )
 
+// ErrPolicyViolation is returned if acquiring a lock causes a policy violation.
 var ErrPolicyViolation = errors.New("policy violation")
 
 // Manager controls access to a set of locks.
@@ -26,9 +27,12 @@ type Policy interface {
 }
 
 // Context represents a goroutine's access to one or more locks managed by a Manager.
+// It provides methods for acquiring and releasing locks and checking whether a lock is held.
 // A new Context must be created every time a goroutine first acquires a lock.
 // A Context is not safe for concurrent access by multiple goroutines.
 type Context interface {
+	Proof
+
 	// AcquireLock acquires the lock with the given ID, unless doing so violates the configured Policy.
 	// This function will block if the lock is held by another goroutine.
 	//
@@ -37,17 +41,22 @@ type Context interface {
 	// Panics if Release has ever been called on this Context.
 	AcquireLock(lockID string) error
 
-	// HoldsLock returns true if this goroutine currently holds the lock with the given ID.
-	// This method is non-blocking.
-	//
-	// Panics if no lock with the given ID exists.
-	HoldsLock(lockID string) bool
-
 	// Release releases all currently held locks and permanently marks this Context as "used".
 	// This method is non-blocking.
 	//
 	// Panics if Release has ever been called on this Context.
 	Release()
+}
+
+// Proof provides a read-only interface to a Context. A low-level function which must be executed
+// while holding a certain lock, but which is not itself responsible for acquiring that lock, can
+// accept a Proof argument. It can then validate that the caller has acquired the necessary lock.
+type Proof interface {
+	// HoldsLock returns true if this goroutine currently holds the lock with the given ID.
+	// This method is non-blocking.
+	//
+	// Panics if no lock with the given ID exists.
+	HoldsLock(lockID string) bool
 }
 
 type manager struct {

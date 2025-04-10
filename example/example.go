@@ -10,7 +10,7 @@ const LockIDX = "X"
 const LockIDY = "Y"
 
 // LowLevelOperationX is an operation that must be called while a specific lock is held.
-func LowLevelOperationX(ctx lockctx.Context) error {
+func LowLevelOperationX(ctx lockctx.Proof) error {
 	if !ctx.HoldsLock(LockIDX) {
 		return fmt.Errorf("caller must hold lock %s", LockIDX)
 	}
@@ -19,7 +19,7 @@ func LowLevelOperationX(ctx lockctx.Context) error {
 }
 
 // LowLevelOperationY is an operation that must be called while a specific lock is held.
-func LowLevelOperationY(ctx lockctx.Context) error {
+func LowLevelOperationY(ctx lockctx.Proof) error {
 	if !ctx.HoldsLock(LockIDY) {
 		return fmt.Errorf("caller must hold lock %s", LockIDY)
 	}
