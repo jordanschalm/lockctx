@@ -1,26 +1,21 @@
-# Lock Context
+# Lockctx
 
-An idea for synchronization of database operations, inspired by Flow's transition from Badger to Pebble.
+Lockctx is a tool for organizing modules which use locks.
+It can be useful when:
+- the module uses a relatively large number of locks
+- the module is large
+- the module spans multiple layers, where locks are acquired in one layer and expected to have been acquired in another
 
-Badger has snapshot isolation, and all our low-level storage functions were written under the assumption that
-they would be executed in the context of an isolated transaction. Pebble has only read-committed isolation.
+## Benefits
 
-Cadence has the notion of capabilities, which are non-copiable resources that represent authorization to
-perform some action.
+Lockctx is used in large modules where some functions acquire locks and some functions require locks.
 
-To safely migrate our Badger code to Pebble, we conceptually want something similar. 
-There is a set of database operations that now need to be synchronized at the application level.
-We would like to:
-- not rewrite all our database code
-- clearly communicate which operations require such synchronization
-- have strong and comprehensible guarantees of exclusivity for relevant database operations
+- Lock-requiring functions can enforce that a lock they require to have been acquired was acquired by the caller.
+- Lock-acquiring functions release all held locks together, so using defer statements is easy and safe
+- Policies can guarantee deadlock-free operation
 
-## Improvements
-- Map lock ID strings to a more performant internal representation
-- Allow releasing individual locks, instead of all locks held by the context
-- Use a pool of contexts to avoid allocations
-- Revisit whether contexts cannot be reused
-- Revisit panics
-- Consider whether Context should be split into "acquirer" and "validator" components
-  - Acquirer could explicitly pass in `ctx.ProofFor(A, B)` to document which locks are used?
-  - We could count arguments to `ProofFor` and warn if an acquired lock never had a proof created for i?
+## Usage Rules
+
+There are some usage requirements which must be satisfied for Lockctx to provide these benefits:
+- Lock-requiring functions must check their `lockctx.Proof` holds the expected lock and exit otherwise
+- `lockctx.Context` instances must not be shared between goroutines
