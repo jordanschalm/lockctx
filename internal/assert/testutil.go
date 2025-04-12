@@ -10,8 +10,7 @@ func ErrorIs(t *testing.T, err, target error) {
 	if err == nil {
 		t.Logf("expected error %s but got nil", target.Error())
 		t.Fail()
-	}
-	if !errors.Is(err, target) {
+	} else if !errors.Is(err, target) {
 		t.Logf("expected error type %T but got %s", target, err.Error())
 		t.Fail()
 	}

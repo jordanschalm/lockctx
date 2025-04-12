@@ -9,6 +9,7 @@ import (
 // ErrPolicyViolation is returned if acquiring a lock causes a policy violation.
 var ErrPolicyViolation = errors.New("policy violation")
 
+// UnknownLockError is returned if an unknown lock is acquired.
 type UnknownLockError struct {
 	LockID string
 }

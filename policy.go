@@ -15,6 +15,11 @@ func (policy statelessPolicy) CanAcquire(holding []string, next string) bool {
 	return policy(holding, next)
 }
 
+// NoPolicy enforces no constraints on lock ordering.
+var NoPolicy statelessPolicy = func(holding []string, next string) bool {
+	return true
+}
+
 // StringOrderPolicy enforces that locks are acquired in lexicographic sort order.
 // This Policy guarantees deadlock-free operation.
 var StringOrderPolicy statelessPolicy = func(holding []string, next string) bool {
@@ -24,11 +29,6 @@ var StringOrderPolicy statelessPolicy = func(holding []string, next string) bool
 	last := holding[len(holding)-1]
 	// next lock ID must sort after last acquired lock
 	return last < next
-}
-
-// NoPolicy enforces no constraints on lock ordering.
-var NoPolicy statelessPolicy = func(holding []string, next string) bool {
-	return true
 }
 
 // DAGPolicyBuilder is used to construct a DAG policy.

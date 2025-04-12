@@ -111,14 +111,17 @@ func TestDAGPolicy(t *testing.T) {
 				ctx := mgr.NewContext()
 				err := ctx.AcquireLock(id)
 				assert.NoError(t, err)
-				for j, id2 := range lockIDs {
-					if j > i {
-						err = ctx.AcquireLock(id2)
-						assert.NoError(t, err)
-					} else {
-						err = ctx.AcquireLock(id2)
+				for _, nextValidLockID := range lockIDs[i+1:] {
+					// attempt to acquire all but the one valid next lock
+					for _, tryLockID := range lockIDs {
+						if tryLockID == nextValidLockID {
+							continue
+						}
+						err = ctx.AcquireLock(tryLockID)
 						assert.ErrorIs(t, err, lockctx.ErrPolicyViolation)
 					}
+					err = ctx.AcquireLock(nextValidLockID)
+					assert.NoError(t, err)
 				}
 				ctx.Release()
 			}
