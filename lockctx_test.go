@@ -36,11 +36,16 @@ func lockIDsFixture(n int) []string {
 	return ids
 }
 
+func TestAcquireLock(t *testing.T) {
+	// acquire a lock twice? -> currently deadlocks, should error instead
+}
+
+// TestHoldsLock tests the HoldsLock function under various circumstances.
 func TestHoldsLock(t *testing.T) {
 	ids := lockIDsFixture(5)
-	mgr := lockctx.NewManager(ids, lockctx.NoPolicy)
 
 	t.Run("at construction should hold no lock", func(t *testing.T) {
+		mgr := lockctx.NewManager(ids, lockctx.NoPolicy)
 		ctx := mgr.NewContext()
 		defer ctx.Release()
 		for _, id := range ids {
@@ -48,6 +53,7 @@ func TestHoldsLock(t *testing.T) {
 		}
 	})
 	t.Run("holding a lock", func(t *testing.T) {
+		mgr := lockctx.NewManager(ids, lockctx.NoPolicy)
 		ctx := mgr.NewContext()
 		defer ctx.Release()
 
@@ -61,13 +67,41 @@ func TestHoldsLock(t *testing.T) {
 		}
 	})
 	t.Run("holding multiple locks", func(t *testing.T) {
+		mgr := lockctx.NewManager(ids, lockctx.NoPolicy)
+		ctx := mgr.NewContext()
+		defer ctx.Release()
 
+		toAcquire := ids[:rand.IntN(len(ids))]
+		acquired := make(map[string]bool, len(toAcquire))
+		for _, id := range toAcquire {
+			acquired[id] = true
+			err := ctx.AcquireLock(id)
+			assert.NoError(t, err)
+		}
+
+		for _, id := range ids {
+			isHolding := ctx.HoldsLock(id)
+			assert.True(t, isHolding == acquired[id])
+		}
 	})
 	t.Run("after release", func(t *testing.T) {
+		mgr := lockctx.NewManager(ids, lockctx.NoPolicy)
+		ctx := mgr.NewContext()
 
+		toAcquire := ids[rand.IntN(len(ids))]
+		err := ctx.AcquireLock(toAcquire)
+		assert.NoError(t, err)
+		ctx.Release()
+
+		for _, id := range ids {
+			assert.False(t, ctx.HoldsLock(id))
+		}
 	})
 }
 
+// TestConcurrentContexts tests concurrent goroutines using Context to acquire multiple locks.
+// Each goroutine attempts to acquire all locks in order and the test verifies that at each
+// step the Context reports the correct set of locks are currently held.
 func TestConcurrentContexts(t *testing.T) {
 	lockIDs := lockIDsFixture(5)
 	mgr := lockctx.NewManager(lockIDs, lockctx.NoPolicy)

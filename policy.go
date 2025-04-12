@@ -73,6 +73,9 @@ type dagPolicy struct {
 	dag graph.Graph
 }
 
+// CanAcquire returns true if the caller is allowed to acquire the next lock N.
+// Let L be the lock the caller most recently acquired (last element in holding).
+// The caller can acquire N if N is there exists an edge L->N in the DAG.
 func (policy dagPolicy) CanAcquire(holding []string, next string) bool {
 	if len(holding) == 0 {
 		return true
