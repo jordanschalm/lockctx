@@ -2,11 +2,29 @@ package lockctx
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 )
 
 // ErrPolicyViolation is returned if acquiring a lock causes a policy violation.
 var ErrPolicyViolation = errors.New("policy violation")
+
+type UnknownLockError struct {
+	LockID string
+}
+
+func NewUnknownLockError(lockID string) UnknownLockError {
+	return UnknownLockError{LockID: lockID}
+}
+
+func IsUnknownLockError(err error) bool {
+	var target UnknownLockError
+	return errors.As(err, &target)
+}
+
+func (err UnknownLockError) Error() string {
+	return fmt.Sprintf("unknown lock: %s", err.LockID)
+}
 
 // Manager controls access to a set of locks.
 // The set of locks and Policy (if any) is defined at construction time and is constant for the lifecycle of the Manager.
@@ -37,7 +55,7 @@ type Context interface {
 	// This function will block if the lock is held by another goroutine.
 	//
 	// Returns ErrPolicyViolation if acquiring the lock would violate the configured Policy.
-	// Panics if no lock with the given ID exists.
+	// Returns UnknownLockError if no lock with the given ID exists.
 	// Panics if Release has ever been called on this Context.
 	AcquireLock(lockID string) error
 
@@ -95,7 +113,11 @@ func (ctx *context) AcquireLock(lockID string) error {
 	if !ctx.mgr.policy.CanAcquire(ctx.holding, lockID) {
 		return ErrPolicyViolation
 	}
-	ctx.mgr.locks[lockID].Lock()
+	lock, ok := ctx.mgr.locks[lockID]
+	if !ok {
+		return NewUnknownLockError(lockID)
+	}
+	lock.Lock()
 	ctx.holding = append(ctx.holding, lockID)
 	return nil
 }

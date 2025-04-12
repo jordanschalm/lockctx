@@ -5,6 +5,7 @@ import (
 	"math/rand/v2"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jordanschalm/lockctx"
 	"github.com/jordanschalm/lockctx/internal/assert"
@@ -36,8 +37,50 @@ func lockIDsFixture(n int) []string {
 	return ids
 }
 
+func TestErrors(t *testing.T) {
+	t.Run("ErrPolicyViolation", func(t *testing.T) {
+		err := fmt.Errorf("something bad happened: %w", lockctx.ErrPolicyViolation)
+		assert.ErrorIs(t, err, lockctx.ErrPolicyViolation)
+	})
+	t.Run("UnknownLockError", func(t *testing.T) {
+		err := lockctx.NewUnknownLockError("lockid")
+		assert.True(t, lockctx.IsUnknownLockError(err))
+		wrapped := fmt.Errorf("something bad happened: %w", err)
+		assert.True(t, lockctx.IsUnknownLockError(wrapped))
+	})
+}
+
 func TestAcquireLock(t *testing.T) {
-	// acquire a lock twice? -> currently deadlocks, should error instead
+	ids := lockIDsFixture(2)
+	existentID := ids[0]
+	nonexistentID := ids[1]
+	t.Run("can acquire existent lock", func(t *testing.T) {
+		t.Parallel()
+
+		mgr := lockctx.NewManager([]string{existentID}, lockctx.NoPolicy)
+		ctx := mgr.NewContext()
+		err := ctx.AcquireLock(existentID)
+		assert.NoError(t, err)
+	})
+	t.Run("cannot acquire nonexistent lock", func(t *testing.T) {
+		t.Parallel()
+
+		mgr := lockctx.NewManager([]string{existentID}, lockctx.NoPolicy)
+		ctx := mgr.NewContext()
+		err := ctx.AcquireLock(nonexistentID)
+		assert.True(t, lockctx.IsUnknownLockError(err))
+	})
+	t.Run("if policy allows, can acquire same lock twice, resulting in deadlock", func(t *testing.T) {
+		t.Parallel()
+
+		mgr := lockctx.NewManager([]string{existentID}, lockctx.NoPolicy)
+		ctx := mgr.NewContext()
+		err := ctx.AcquireLock(existentID)
+		assert.NoError(t, err)
+		assert.DoesNotReturnAfter(t, time.Millisecond*10, func() {
+			_ = ctx.AcquireLock(existentID) // blocks forever
+		})
+	})
 }
 
 // TestHoldsLock tests the HoldsLock function under various circumstances.
